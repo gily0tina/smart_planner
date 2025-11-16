@@ -219,6 +219,14 @@ class Database:
         conn.commit()
         conn.close()
     
+    def delete_all_sources(self):
+        """Удалить все источники (для обновления списка при генерации нового плана)"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM sources")
+        conn.commit()
+        conn.close()
+    
     def save_source(self, source: Source):
         """Сохранить источник"""
         conn = self.get_connection()
@@ -247,6 +255,57 @@ class Database:
                 trust=bool(row['trust'])
             ))
         return sources
+    
+    def delete_source(self, source_id: str):
+        """Удалить источник"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+        conn.commit()
+        conn.close()
+    
+    def get_plan_items(self) -> List[PlanItem]:
+        """Получить все элементы текущего плана"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        # Получаем последний план (по plan_id)
+        cursor.execute("""
+            SELECT p.*, t.title, t.category, t.mood 
+            FROM plans p
+            JOIN tasks t ON p.task_id = t.id
+            WHERE p.plan_id = (SELECT plan_id FROM plans ORDER BY created_at DESC LIMIT 1)
+            ORDER BY p.created_at
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        plan_items = []
+        for row in rows:
+            plan_items.append(PlanItem(
+                task_id=row['task_id'],
+                task_title=row['title'],
+                task_category=row['category'],
+                task_mood=row['mood'],
+                time_block=TimeBlock(row['time_block']),
+                justification=row['justification'] or ""
+            ))
+        return plan_items
+    
+    def update_plan_item_time(self, task_id: str, new_time_block: TimeBlock, justification: str = ""):
+        """Обновить время задачи в текущем плане"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        # Обновляем последний план для этой задачи
+        cursor.execute("""
+            UPDATE plans 
+            SET time_block = ?, justification = ?
+            WHERE task_id = ? 
+            AND plan_id = (SELECT plan_id FROM plans ORDER BY created_at DESC LIMIT 1)
+        """, (new_time_block.value, justification or f"Перемещено в {new_time_block.value}", task_id))
+        
+        conn.commit()
+        conn.close()
     
     def delete_task(self, task_id: str):
         """Удалить задачу"""

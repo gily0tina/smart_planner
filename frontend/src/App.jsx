@@ -110,6 +110,25 @@ function App() {
       setMessage('Задача удалена!')
       setTimeout(() => setMessage(null), 3000)
       loadTasks()
+      
+      // Если план уже сгенерирован, обновляем его - удаляем задачу из плана
+      if (plan) {
+        const updatedPlan = {
+          morning: plan.morning.filter(item => item.task_id !== taskId),
+          day: plan.day.filter(item => item.task_id !== taskId),
+          evening: plan.evening.filter(item => item.task_id !== taskId),
+          sources: plan.sources || []
+        }
+        setPlan(updatedPlan)
+        
+        // Если все задачи удалены, очищаем план
+        if (updatedPlan.morning.length === 0 && 
+            updatedPlan.day.length === 0 && 
+            updatedPlan.evening.length === 0) {
+          setPlan(null)
+          setSources([])
+        }
+      }
     } catch (err) {
       setError('Ошибка удаления задачи: ' + err.message)
     }

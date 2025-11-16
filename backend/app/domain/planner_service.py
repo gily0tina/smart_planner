@@ -30,41 +30,53 @@ class PlannerService:
     
     def generate_plan(self, task_ids: Optional[List[str]] = None) -> DayPlan:
         """Сгенерировать план на день"""
-        # Получаем задачи
-        all_tasks = self.db.get_tasks()
-        tasks = all_tasks if not task_ids else [t for t in all_tasks if t.id in task_ids]
+        import logging
+        logger = logging.getLogger(__name__)
         
-        if not tasks:
-            return DayPlan()
-        
-        # Получаем профиль пользователя
-        user_profile = self.db.get_user_profile()
-        
-        # Генерируем план через LLM
-        plan_items, sources = self.llm.generate_plan(tasks, user_profile)
-        
-        # Сохраняем план
-        self.db.save_plan(plan_items)
-        
-        # Сохраняем источники
-        for source in sources:
-            self.db.save_source(source)
-        
-        # Группируем по временным блокам
-        # Используем сравнение по значению для надежности
-        morning = [item for item in plan_items if item.time_block.value == TimeBlock.MORNING.value]
-        day = [item for item in plan_items if item.time_block.value == TimeBlock.DAY.value]
-        evening = [item for item in plan_items if item.time_block.value == TimeBlock.EVENING.value]
-        
-        return DayPlan(
-            morning=morning,
-            day=day,
-            evening=evening,
-            sources=sources
-        )
+        try:
+            # Получаем задачи
+            all_tasks = self.db.get_tasks()
+            tasks = all_tasks if not task_ids else [t for t in all_tasks if t.id in task_ids]
+            
+            if not tasks:
+                return DayPlan()
+            
+            # Получаем профиль пользователя
+            user_profile = self.db.get_user_profile()
+            
+            # Генерируем план через LLM
+            plan_items, sources = self.llm.generate_plan(tasks, user_profile)
+            
+            # Сохраняем план только если генерация прошла успешно
+            self.db.save_plan(plan_items)
+            
+            # Удаляем старые источники перед сохранением новых (чтобы показывать только источники текущего плана)
+            self.db.delete_all_sources()
+            
+            # Сохраняем источники текущего плана
+            for source in sources:
+                self.db.save_source(source)
+            
+            # Группируем по временным блокам
+            # Используем сравнение по значению для надежности
+            morning = [item for item in plan_items if item.time_block.value == TimeBlock.MORNING.value]
+            day = [item for item in plan_items if item.time_block.value == TimeBlock.DAY.value]
+            evening = [item for item in plan_items if item.time_block.value == TimeBlock.EVENING.value]
+            
+            return DayPlan(
+                morning=morning,
+                day=day,
+                evening=evening,
+                sources=sources
+            )
+        except Exception as e:
+            logger.error(f"[PlannerService] Ошибка генерации плана: {e}")
+            logger.exception(e)
+            # При ошибке не сохраняем промежуточные результаты, возвращаем пустой план с сообщением
+            return DayPlan(error_message="Произошла ошибка при генерации - попробуйте еще раз")
     
-    def update_task_time(self, task_id: str, new_time_block: TimeBlock):
-        """Обновить время задачи (ручная правка)"""
+    def update_task_time(self, task_id: str, new_time_block: TimeBlock) -> DayPlan:
+        """Обновить время задачи (ручная правка) - обновляет план без перегенерации"""
         tasks = self.db.get_tasks()
         task = next((t for t in tasks if t.id == task_id), None)
         
@@ -85,6 +97,10 @@ class PlannerService:
         task.preferred_time = new_time_block
         self.db.save_task(task)
         
+        # Обновляем план в БД без перегенерации
+        justification = f"Перемещено в {new_time_block.value} по вашему выбору"
+        self.db.update_plan_item_time(task_id, new_time_block, justification)
+        
         # Сохраняем историю
         self.db.save_edit_history(task_id, None, new_time_block.value)
         
@@ -93,6 +109,23 @@ class PlannerService:
         
         # Определяем хронотип на основе истории
         self._update_chronotype(user_profile)
+        
+        # Возвращаем обновленный план
+        plan_items = self.db.get_plan_items()
+        sources = self.db.get_sources()
+        
+        # Группируем по временным блокам
+        from ..models import TimeBlock
+        morning = [item for item in plan_items if item.time_block.value == TimeBlock.MORNING.value]
+        day = [item for item in plan_items if item.time_block.value == TimeBlock.DAY.value]
+        evening = [item for item in plan_items if item.time_block.value == TimeBlock.EVENING.value]
+        
+        return DayPlan(
+            morning=morning,
+            day=day,
+            evening=evening,
+            sources=sources
+        )
     
     def _update_chronotype(self, profile: UserProfile):
         """Обновить хронотип на основе истории"""
@@ -111,11 +144,9 @@ class PlannerService:
         self.db.update_user_profile(profile)
     
     def mark_source_untrusted(self, source_id: str):
-        """Пометить источник как недоверенный"""
-        user_profile = self.db.get_user_profile()
-        if source_id not in user_profile.disliked_sources:
-            user_profile.disliked_sources.append(source_id)
-        self.db.update_user_profile(user_profile)
+        """Удалить источник из списка (пометить как недоверенный)"""
+        # Просто удаляем источник из БД
+        self.db.delete_source(source_id)
     
     def get_sources(self) -> List:
         """Получить все источники"""

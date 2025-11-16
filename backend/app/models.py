@@ -50,6 +50,7 @@ class DayPlan(BaseModel):
     day: List[PlanItem] = []
     evening: List[PlanItem] = []
     sources: List[Source] = []
+    error_message: Optional[str] = None  # Сообщение об ошибке, если план не удалось сгенерировать
 
 
 class UserProfile(BaseModel):

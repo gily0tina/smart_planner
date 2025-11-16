@@ -10,6 +10,10 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_API_BASE=${OPENAI_API_BASE:-https://api.openai.com/v1}
       - LLM_MODEL=${LLM_MODEL:-gpt-3.5-turbo}
+      - POLZA_AI_API_KEY=${POLZA_AI_API_KEY:-}
+      - POLZA_AI_API_BASE=${POLZA_AI_API_BASE:-https://api.polza.ai/api/v1}
+      - POLZA_AI_MODEL=${POLZA_AI_MODEL:-perplexity/sonar}
+      - POLZA_AI_TIMEOUT=${POLZA_AI_TIMEOUT:-30}
     volumes:
       - ./backend:/app
       - backend-data:/app/data
